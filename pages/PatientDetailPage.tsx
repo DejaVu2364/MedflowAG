@@ -4,9 +4,10 @@ import { AppContext } from '../App';
 import { AppContextType, Patient, User, TriageLevel, Order, Vitals, OrderStatus, OrderCategory, ClinicalFileSections, Allergy, HistorySectionData, GPESectionData, SystemicExamSectionData, SystemicExamSystemData, AISuggestionHistory, OrderPriority, Round, Result, VitalsRecord, VitalsMeasurements, PatientStatus } from '../types';
 import { SparklesIcon, CheckBadgeIcon, InformationCircleIcon, DocumentDuplicateIcon, ChevronDownIcon, ChevronUpIcon, XMarkIcon, EllipsisVerticalIcon, PaperAirplaneIcon, PencilIcon, BeakerIcon, FilmIcon, PillIcon, ClipboardDocumentListIcon, UserCircleIcon, SearchIcon, PlusIcon } from '../components/icons';
 import TextareaAutosize from 'react-textarea-autosize';
-import { generateSOAPForRound, summarizeChangesSinceLastRound } from '../services/geminiService';
+import { generateSOAPForRound, summarizeChangesSinceLastRound, compileDischargeSummary } from '../services/geminiService';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import VoiceInput from '../components/VoiceInput';
+import { ClinicalFileView } from '../components/ClinicalFile';
 
 // --- STYLED COMPONENTS & HELPERS ---
 
@@ -555,8 +556,14 @@ const RoundsTab: React.FC<{ patient: Patient }> = React.memo(({ patient }) => {
                 </button>
             ) : (
                 <div className="bg-background-primary rounded-xl border border-border-color shadow-sm overflow-hidden">
-                    <div className="p-4 bg-brand-blue-light/30 border-b border-border-color flex justify-between items-center">
-                        <h3 className="font-bold text-brand-blue-dark">Current Round Note</h3>
+                    <div className="p-4 bg-brand-blue-light/30 border-b border-border-color flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                        <div>
+                            <h3 className="font-bold text-brand-blue-dark">Current Round Note</h3>
+                            <div className="flex items-center gap-1.5 mt-1">
+                                <span className="text-[10px] font-semibold text-brand-blue bg-brand-blue/10 px-1.5 py-0.5 rounded">AI Assisted</span>
+                                <span className="text-[10px] text-text-tertiary">Verify before signing</span>
+                            </div>
+                        </div>
                         <div className="flex gap-2">
                             <AIActionButton onClick={async () => updateDraftRound(patient.id, draft.roundId, await generateSOAPForRound(patient))} text="Auto-Generate" />
                             <button onClick={handleSignOff} className="px-4 py-1.5 bg-brand-green text-white text-xs font-bold rounded-md hover:bg-green-600">Sign Off</button>
@@ -630,9 +637,43 @@ const VitalsTab: React.FC<{ patient: Patient }> = React.memo(({ patient }) => {
     );
 });
 
+const DischargeTab: React.FC<{ patient: Patient }> = React.memo(({ patient }) => {
+    const { generateDischargeSummary, updateStateAndDb } = useContext(AppContext) as AppContextType;
+    const [isEditing, setIsEditing] = useState(false);
+    const summary = patient.dischargeSummary?.draft || '';
+
+    return (
+        <div className="p-6 max-w-4xl mx-auto space-y-6">
+            <div className="flex justify-between items-center p-4 bg-background-secondary/30 rounded-xl border border-border-color">
+                <div>
+                    <h3 className="font-bold text-lg text-text-primary">Discharge Summary</h3>
+                    <p className="text-xs text-text-tertiary mt-1 flex items-center gap-1">
+                        <SparklesIcon className="w-3 h-3 text-brand-blue" />
+                        AI-generated — verify clinically before printing.
+                    </p>
+                </div>
+                <div className="flex gap-2">
+                    <AIActionButton onClick={() => generateDischargeSummary(patient.id)} text="Regenerate Draft" />
+                    <button onClick={() => window.print()} className="px-4 py-2 bg-brand-blue text-white rounded-lg text-sm font-bold shadow-sm hover:bg-brand-blue-dark">Print / PDF</button>
+                </div>
+            </div>
+
+            <div className="relative border border-border-color rounded-xl bg-background-primary shadow-sm overflow-hidden min-h-[500px]">
+                <TextareaAutosize
+                    value={summary}
+                    onChange={(e) => updateStateAndDb(patient.id, p => ({ ...p, dischargeSummary: { ...p.dischargeSummary, draft: e.target.value } }))}
+                    className="w-full h-full p-8 text-base leading-relaxed outline-none resize-none font-serif text-text-primary"
+                    placeholder="No discharge summary generated yet..."
+                    minRows={20}
+                />
+            </div>
+        </div>
+    );
+});
+
 const PatientDetailPage: React.FC = () => {
     const { selectedPatientId, patients, setPage, currentUser } = useContext(AppContext) as AppContextType;
-    const [activeTab, setActiveTab] = useState<'overview' | 'clinical' | 'orders' | 'rounds' | 'vitals'>('clinical');
+    const [activeTab, setActiveTab] = useState<'overview' | 'clinical' | 'orders' | 'rounds' | 'vitals' | 'discharge'>('clinical');
     const patient = patients.find(p => p.id === selectedPatientId);
 
     if (!patient || !currentUser) return <div className="p-10 text-center">Loading...</div>;
@@ -646,11 +687,11 @@ const PatientDetailPage: React.FC = () => {
                     <div className="flex-1 bg-background-primary rounded-2xl border border-border-color shadow-sm min-h-[80vh] flex flex-col overflow-hidden">
                         {/* Tab Navigation */}
                         <div className="flex border-b border-border-color px-6 pt-4 space-x-6 overflow-x-auto">
-                            {['clinical', 'orders', 'rounds', 'vitals'].map(tab => (
+                            {['clinical', 'orders', 'rounds', 'vitals', 'discharge'].map(tab => (
                                 <button
                                     key={tab}
                                     onClick={() => setActiveTab(tab as any)}
-                                    className={`pb-4 px-2 text-sm font-bold capitalize transition-all border-b-2 ${
+                                    className={`pb-4 px-2 text-sm font-bold capitalize transition-all border-b-2 whitespace-nowrap ${
                                         activeTab === tab
                                             ? 'border-brand-blue text-brand-blue'
                                             : 'border-transparent text-text-tertiary hover:text-text-primary hover:border-gray-300'
@@ -660,11 +701,12 @@ const PatientDetailPage: React.FC = () => {
                                 </button>
                             ))}
                         </div>
-                        <div className="flex-1 bg-background-primary">
-                            {activeTab === 'clinical' && <ClinicalFileTab patient={patient} user={currentUser} />}
+                        <div className="flex-1 bg-background-primary overflow-y-auto max-h-[calc(100vh-250px)]">
+                            {activeTab === 'clinical' && <ClinicalFileView patient={patient} user={currentUser} />}
                             {activeTab === 'orders' && <OrdersTab patient={patient} />}
                             {activeTab === 'rounds' && <RoundsTab patient={patient} />}
                             {activeTab === 'vitals' && <VitalsTab patient={patient} />}
+                            {activeTab === 'discharge' && <DischargeTab patient={patient} />}
                         </div>
                     </div>
                 </div>

@@ -380,7 +380,7 @@ export interface Patient {
   };
 }
 
-export type Page = 'dashboard' | 'reception' | 'triage' | 'patientDetail';
+export type Page = 'dashboard' | 'reception' | 'triage' | 'patientDetail' | 'bedManager';
 
 export interface ChatMessage {
     role: 'user' | 'model';

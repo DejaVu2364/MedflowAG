@@ -5,15 +5,19 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { AITriageSuggestion, Department, TriageLevel, SOAPNote, TeamNote, FollowUpQuestion, ComposedHistory, Patient, Order, OrderCategory, PatientOverview, Vitals, ClinicalFileSections, OrderPriority, Round, VitalsRecord } from '../types';
 import { getFromCache, setInCache } from './caching';
+import { logError, logDebug } from '../utils/logger';
 
 
 const API_KEY = process.env.API_KEY;
 
-if (!API_KEY) {
-    throw new Error("API_KEY environment variable not set.");
-}
+let ai: GoogleGenAI | null = null;
+const MOCK_MODE = !API_KEY;
 
-const ai = new GoogleGenAI({ apiKey: API_KEY });
+if (API_KEY) {
+    ai = new GoogleGenAI({ apiKey: API_KEY });
+} else {
+    logDebug("API_KEY environment variable not set. Running in MOCK_MODE.");
+}
 
 const flashModel = "gemini-2.5-flash";
 const proModel = "gemini-2.5-pro";
@@ -23,6 +27,16 @@ const triageLevelValues: TriageLevel[] = ['Red', 'Yellow', 'Green'];
 
 
 export const classifyComplaint = async (complaint: string): Promise<{data: AITriageSuggestion, fromCache: boolean}> => {
+    if (MOCK_MODE) {
+        return {
+            data: {
+                department: 'General Medicine',
+                suggested_triage: 'Yellow',
+                confidence: 0.85
+            },
+            fromCache: false
+        };
+    }
     const cacheKey = `classify:${complaint.toLowerCase().trim()}`;
     const cached = getFromCache<AITriageSuggestion>(cacheKey);
     if (cached) {
@@ -30,7 +44,7 @@ export const classifyComplaint = async (complaint: string): Promise<{data: AITri
     }
 
     try {
-        const response = await ai.models.generateContent({
+        const response = await ai!.models.generateContent({
             model: flashModel,
             contents: `You are a medical expert system. Based on the patient's chief complaint, classify it into the most likely medical department and suggest a triage level (Red, Yellow, or Green). Provide a confidence score from 0 to 1. Complaint: "${complaint}"`,
             config: {
@@ -65,7 +79,7 @@ export const classifyComplaint = async (complaint: string): Promise<{data: AITri
         return { data: result, fromCache: false };
 
     } catch (error) {
-        console.error("Error classifying complaint with Gemini:", error);
+        logError("Error classifying complaint with Gemini:", error);
         // Rethrow the error to be handled by the UI component, which can provide better user feedback.
         throw error;
     }
@@ -74,6 +88,18 @@ export const classifyComplaint = async (complaint: string): Promise<{data: AITri
 type SOAPNoteData = Omit<SOAPNote, 'id' | 'patientId' | 'author' | 'authorId' | 'role' | 'timestamp' | 'type'>;
 
 export const generateSOAPFromTranscript = async (transcript: string): Promise<{ data: SOAPNoteData, fromCache: boolean }> => {
+    if (MOCK_MODE) {
+        return {
+            data: {
+                transcript,
+                s: "Patient reports feeling better.",
+                o: "Vitals stable.",
+                a: "Recovering well.",
+                p: "Continue current medication."
+            },
+            fromCache: false
+        };
+    }
     const cacheKey = `soap:${transcript.slice(0, 100)}`; // Cache based on start of transcript
     const cached = getFromCache<SOAPNoteData>(cacheKey);
     if (cached) {
@@ -81,7 +107,7 @@ export const generateSOAPFromTranscript = async (transcript: string): Promise<{ 
     }
 
     try {
-         const response = await ai.models.generateContent({
+         const response = await ai!.models.generateContent({
             model: proModel, // Use Pro for more complex reasoning
             contents: `You are a medical scribe AI. Convert the following doctor's round transcript into a structured SOAP note. Ensure each section is concise and clinically relevant. Transcript: "${transcript}"`,
             config: {
@@ -104,7 +130,7 @@ export const generateSOAPFromTranscript = async (transcript: string): Promise<{ 
         setInCache(cacheKey, result);
         return { data: result, fromCache: false };
     } catch (error) {
-        console.error("Error generating SOAP note:", error);
+        logError("Error generating SOAP note:", error);
         const fallbackResult = {
             transcript,
             s: 'Could not generate from transcript.',
@@ -119,6 +145,15 @@ export const generateSOAPFromTranscript = async (transcript: string): Promise<{ 
 type SummaryData = { summary: string, escalations: string[] };
 
 export const summarizeInternNotes = async (notes: TeamNote[]): Promise<{ data: SummaryData, fromCache: boolean }> => {
+    if (MOCK_MODE) {
+        return {
+            data: {
+                summary: "Patient condition stable.",
+                escalations: []
+            },
+            fromCache: false
+        };
+    }
     const noteTexts = notes.map(n => n.content).join('|');
     const cacheKey = `summary:${noteTexts.slice(0, 100)}`;
     const cached = getFromCache<SummaryData>(cacheKey);
@@ -127,7 +162,7 @@ export const summarizeInternNotes = async (notes: TeamNote[]): Promise<{ data: S
     }
 
      try {
-        const response = await ai.models.generateContent({
+        const response = await ai!.models.generateContent({
             model: proModel,
             contents: `As a senior attending physician, review the following progress notes from interns. Provide a brief summary of the patient's status and create a list of key points or concerns that may require escalation or your direct attention. Notes:\n${noteTexts}`,
             config: {
@@ -148,20 +183,26 @@ export const summarizeInternNotes = async (notes: TeamNote[]): Promise<{ data: S
         setInCache(cacheKey, result);
         return { data: result, fromCache: false };
     } catch (error) {
-        console.error("Error summarizing notes:", error);
+        logError("Error summarizing notes:", error);
         const fallbackResult = { summary: 'Failed to generate summary.', escalations: ['API error.'] };
         return { data: fallbackResult, fromCache: false };
     }
 };
 
 export const generateChecklist = async (diagnosis: string): Promise<{ data: string[], fromCache: boolean }> => {
+    if (MOCK_MODE) {
+        return {
+            data: ["Monitor Vitals", "Administer Antibiotics", "Review Lab Results"],
+            fromCache: false
+        };
+    }
     const cacheKey = `checklist:${diagnosis.toLowerCase().trim()}`;
     const cached = getFromCache<string[]>(cacheKey);
     if (cached) {
         return { data: cached, fromCache: true };
     }
     try {
-        const response = await ai.models.generateContent({
+        const response = await ai!.models.generateContent({
             model: flashModel,
             contents: `Create a standard clinical care checklist for a patient with the following assessment: "${diagnosis}". The checklist should include 5-7 key actions or monitoring points.`,
             config: {
@@ -181,17 +222,20 @@ export const generateChecklist = async (diagnosis: string): Promise<{ data: stri
         setInCache(cacheKey, checklistItems);
         return { data: checklistItems, fromCache: false };
     } catch (error) {
-        console.error("Error generating checklist:", error);
+        logError("Error generating checklist:", error);
         const fallbackResult = ['Failed to generate checklist due to API error.'];
         return { data: fallbackResult, fromCache: false };
     }
 };
 
 export const answerWithRAG = async (query: string, context: string): Promise<string> => {
+    if (MOCK_MODE) {
+        return "This is a mock response based on the patient context.";
+    }
     try {
         const systemInstruction = `You are a helpful medical AI assistant. Answer the user's query based ONLY on the provided context. If the answer is not in the context, state that clearly. Do not use external knowledge. Context:\n${context || "No patient context provided."}`;
         
-        const response = await ai.models.generateContent({
+        const response = await ai!.models.generateContent({
             model: proModel,
             contents: query,
             config: {
@@ -200,7 +244,7 @@ export const answerWithRAG = async (query: string, context: string): Promise<str
         });
         return response.text;
     } catch (error) {
-        console.error("Error with RAG answer:", error);
+        logError("Error with RAG answer:", error);
         return "Sorry, I couldn't process that request.";
     }
 };
@@ -209,6 +253,14 @@ export const answerWithRAG = async (query: string, context: string): Promise<str
 // --- PATIENT WORKSPACE AI HELPERS ---
 
 export const generateOverviewSummary = async (patient: Patient): Promise<PatientOverview> => {
+    if (MOCK_MODE) {
+        return {
+            summary: "Patient is stable and resting comfortably.",
+            vitalsSnapshot: "Stable",
+            activeOrders: "3 active orders",
+            recentResults: "Pending"
+        };
+    }
     const context = `
         Generate a concise overview for a clinician.
         Patient: ${patient.name}, ${patient.age}, ${patient.gender}.
@@ -218,7 +270,7 @@ export const generateOverviewSummary = async (patient: Patient): Promise<Patient
         Latest Round Summary: ${patient.rounds.find(r => r.status === 'signed')?.subjective || 'No rounds yet'}.
     `;
     try {
-        const response = await ai.models.generateContent({
+        const response = await ai!.models.generateContent({
             model: proModel,
             contents: `You are a clinical AI assistant. Based on the following data, generate a structured summary for the patient's overview tab. Each field should be a very brief, single line. \n\n${context}`,
             config: {
@@ -237,25 +289,28 @@ export const generateOverviewSummary = async (patient: Patient): Promise<Patient
         });
         return JSON.parse(response.text) as PatientOverview;
     } catch (error) {
-        console.error("Error generating overview summary:", error);
+        logError("Error generating overview summary:", error);
         throw error;
     }
 };
 
 export const summarizeClinicalFile = async (sections: ClinicalFileSections): Promise<string> => {
+    if (MOCK_MODE) {
+        return "Clinical file summarized: Patient presents with symptoms consistent with initial complaint. No major red flags.";
+    }
     const context = `
         History: ${JSON.stringify(sections.history)}
         GPE: ${JSON.stringify(sections.gpe)}
         Systemic Exams: ${JSON.stringify(sections.systemic)}
     `;
     try {
-        const response = await ai.models.generateContent({
+        const response = await ai!.models.generateContent({
             model: proModel,
             contents: `Summarize the following clinical findings into a concise 3-4 line paragraph for a medical record.\n\n${context}`,
         });
         return response.text;
     } catch (error) {
-        console.error("Error summarizing clinical file:", error);
+        logError("Error summarizing clinical file:", error);
         throw error;
     }
 };
@@ -263,6 +318,18 @@ export const summarizeClinicalFile = async (sections: ClinicalFileSections): Pro
 type SuggestedOrder = Omit<Order, 'orderId' | 'patientId' | 'createdBy' | 'createdAt' | 'status'>;
 
 export const suggestOrdersFromClinicalFile = async (sections: ClinicalFileSections): Promise<SuggestedOrder[]> => {
+    if (MOCK_MODE) {
+        return [
+            {
+                category: "investigation",
+                subType: "CBC",
+                label: "Complete Blood Count",
+                priority: "routine",
+                payload: {},
+                ai_provenance: { prompt_id: null, rationale: "Standard initial workup." }
+            }
+        ];
+    }
     const historyText = JSON.stringify(sections.history);
     const gpeText = JSON.stringify(sections.gpe);
     const examsText = JSON.stringify(sections.systemic);
@@ -271,7 +338,7 @@ export const suggestOrdersFromClinicalFile = async (sections: ClinicalFileSectio
     const OrderPriorityEnum: OrderPriority[] = ["routine", "urgent", "STAT"];
 
     try {
-        const response = await ai.models.generateContent({
+        const response = await ai!.models.generateContent({
             model: proModel,
             contents: `You are a clinical decision support AI. Given the patient's history and examination findings, suggest relevant initial orders. Format the output as a JSON array of order objects. Include a clinical rationale for each suggestion.
             History: "${historyText}"
@@ -325,12 +392,20 @@ export const suggestOrdersFromClinicalFile = async (sections: ClinicalFileSectio
         })) as SuggestedOrder[];
 
     } catch (error) {
-        console.error("Error suggesting orders:", error);
+        logError("Error suggesting orders:", error);
         throw error;
     }
 };
 
 export const compileDischargeSummary = async (patient: Patient): Promise<string> => {
+    if (MOCK_MODE) {
+        return `Discharge Summary for ${patient.name}
+
+        Course in Hospital: Patient responded well to treatment.
+        Condition at Discharge: Stable.
+        Medications: Continue as prescribed.
+        Follow-up: In 2 weeks.`;
+    }
     const context = `
         Patient: ${patient.name}, ${patient.age}, ${patient.gender}
         Chief Complaint: ${patient.complaint}
@@ -346,20 +421,26 @@ export const compileDischargeSummary = async (patient: Patient): Promise<string>
     `;
     
     try {
-        const response = await ai.models.generateContent({
+        const response = await ai!.models.generateContent({
             model: proModel,
             contents: `You are a medical scribe AI. Compile a comprehensive, well-formatted discharge summary based on the following patient data. The summary should include: 1. Brief course in hospital, 2. Condition at discharge, 3. Discharge medications, 4. Follow-up advice. \n\n ${context}`,
         });
         return response.text;
     } catch (error) {
-        console.error("Error compiling discharge summary:", error);
+        logError("Error compiling discharge summary:", error);
         throw error;
     }
 };
 
 export const getFollowUpQuestions = async (section: keyof ClinicalFileSections, seedText: string): Promise<FollowUpQuestion[]> => {
+    if (MOCK_MODE) {
+        return [
+            { id: 'q1', text: "Can you describe the severity?", answer_type: 'options', quick_options: ["Mild", "Moderate", "Severe"], rationale: "To assess impact." },
+            { id: 'q2', text: "How long has this been happening?", answer_type: 'text', rationale: "To determine duration." }
+        ];
+    }
     try {
-        const response = await ai.models.generateContent({
+        const response = await ai!.models.generateContent({
             model: flashModel,
             contents: `You are a clinical history-taking AI. For the "${section}" section, a clinician has provided the following seed information: "${seedText}". Generate 2 to 4 targeted follow-up questions to gather more details. For each question, suggest an answer type ('text' for free-form, 'options' for multiple choice), provide quick option choices if applicable, and include a brief rationale for why the question is clinically relevant.`,
             config: {
@@ -389,15 +470,18 @@ export const getFollowUpQuestions = async (section: keyof ClinicalFileSections, 
         const result = JSON.parse(response.text);
         return result.questions || [];
     } catch (error) {
-        console.error(`Error getting follow-up questions for ${section}:`, error);
+        logError(`Error getting follow-up questions for ${section}:`, error);
         throw error;
     }
 };
 
 export const composeHistoryParagraph = async (section: keyof ClinicalFileSections, seedText: string, answers: Record<string, string>): Promise<ComposedHistory> => {
+    if (MOCK_MODE) {
+        return { paragraph: `${seedText}. ${Object.values(answers).join('. ')}.` };
+    }
     const qaText = Object.entries(answers).map(([q, a]) => `Q: ${q}\nA: ${a}`).join('\n');
     try {
-        const response = await ai.models.generateContent({
+        const response = await ai!.models.generateContent({
             model: flashModel,
             contents: `You are a clinical documentation assistant. A clinician is documenting the "${section}" section. Based on their initial seed phrase and the follow-up Q&A, compose a concise, professional paragraph for the medical record. \n\nSeed: "${seedText}"\n\nQ&A:\n${qaText}`,
             config: {
@@ -414,7 +498,7 @@ export const composeHistoryParagraph = async (section: keyof ClinicalFileSection
         const result = JSON.parse(response.text);
         return result || { paragraph: "Could not generate summary." };
     } catch (error) {
-        console.error(`Error composing history for ${section}:`, error);
+        logError(`Error composing history for ${section}:`, error);
         return { paragraph: `Based on the initial report of "${seedText}", the following was noted: ${Object.values(answers).join('. ')}.` }; // Simple fallback
     }
 };
@@ -422,6 +506,12 @@ export const composeHistoryParagraph = async (section: keyof ClinicalFileSection
 // --- NEW ROUNDS AI FUNCTIONS ---
 
 export const summarizeChangesSinceLastRound = async (lastRoundAt: string, patient: Patient): Promise<{ summary: string; highlights: string[] }> => {
+    if (MOCK_MODE) {
+        return {
+            summary: "No significant changes since last round.",
+            highlights: ["Vitals stable", "No new orders"]
+        };
+    }
     // This is a simplified version. A real implementation would fetch changes from a backend.
     const context = `
         Summarize changes since the last round at ${new Date(lastRoundAt).toLocaleString()}.
@@ -429,7 +519,7 @@ export const summarizeChangesSinceLastRound = async (lastRoundAt: string, patien
         New Orders: ${patient.orders.filter(o => new Date(o.createdAt) > new Date(lastRoundAt)).map(o => o.label).join(', ') || 'None'}
     `;
     try {
-        const response = await ai.models.generateContent({
+        const response = await ai!.models.generateContent({
             model: flashModel,
             contents: `Generate a 1-line summary and a short list of highlights (e.g., "New CXR report", "Hb ↑") based on the following patient data changes. \n\n${context}`,
             config: {
@@ -446,12 +536,20 @@ export const summarizeChangesSinceLastRound = async (lastRoundAt: string, patien
         });
         return JSON.parse(response.text);
     } catch (error) {
-        console.error("Error summarizing changes:", error);
+        logError("Error summarizing changes:", error);
         return { summary: "Failed to generate summary.", highlights: ["API error"] };
     }
 };
 
 export const generateSOAPForRound = async (patient: Patient): Promise<Partial<Round>> => {
+    if (MOCK_MODE) {
+        return {
+            subjective: "Patient resting.",
+            objective: "Vitals WNL.",
+            assessment: "Stable.",
+            plan: { text: "Monitor." }
+        };
+    }
     const context = `
         Patient Clinical File: ${JSON.stringify(patient.clinicalFile.sections)}
         Latest Vitals: ${JSON.stringify(patient.vitals)}
@@ -459,7 +557,7 @@ export const generateSOAPForRound = async (patient: Patient): Promise<Partial<Ro
         Previous Round: ${JSON.stringify(patient.rounds.find(r => r.status === 'signed'))}
     `;
      try {
-        const response = await ai.models.generateContent({
+        const response = await ai!.models.generateContent({
             model: proModel,
             contents: `Generate a draft SOAP note for a new clinical round based on the provided patient context. \n\n${context}`,
             config: {
@@ -483,19 +581,25 @@ export const generateSOAPForRound = async (patient: Patient): Promise<Partial<Ro
         });
         return JSON.parse(response.text);
     } catch (error) {
-        console.error("Error generating SOAP for round:", error);
+        logError("Error generating SOAP for round:", error);
         throw error;
     }
 };
 
 export const crossCheckRound = async (patient: Patient, roundDraft: Round): Promise<{ contradictions: string[]; missingFollowups: string[] }> => {
+    if (MOCK_MODE) {
+        return {
+            contradictions: [],
+            missingFollowups: []
+        };
+    }
      const context = `
         Patient History: ${JSON.stringify(patient.clinicalFile.sections.history)}
         Patient GPE: ${JSON.stringify(patient.clinicalFile.sections.gpe)}
         Draft Round Note: ${JSON.stringify(roundDraft)}
     `;
     try {
-        const response = await ai.models.generateContent({
+        const response = await ai!.models.generateContent({
             model: proModel,
             contents: `Cross-check the draft round note against the patient's history and GPE. Identify any direct contradictions or clear missing follow-ups. If none, return empty arrays. \n\n${context}`,
             config: {
@@ -512,13 +616,16 @@ export const crossCheckRound = async (patient: Patient, roundDraft: Round): Prom
         });
         return JSON.parse(response.text);
     } catch (error) {
-        console.error("Error cross-checking round:", error);
+        logError("Error cross-checking round:", error);
         return { contradictions: ["AI check failed. Please review manually."], missingFollowups: [] };
     }
 };
 
 // --- NEW VITALS TAB AI FUNCTION ---
 export const summarizeVitals = async (vitalsHistory: VitalsRecord[]): Promise<{ summary: string }> => {
+    if (MOCK_MODE) {
+        return { summary: "Vitals have been stable over the last 24 hours." };
+    }
     const formattedHistory = vitalsHistory.slice(0, 10).map(v => 
         `At ${new Date(v.recordedAt).toLocaleTimeString()}: ` +
         Object.entries(v.measurements).map(([key, value]) => `${key.replace('_', ' ')}: ${value}`).join(', ')
@@ -527,7 +634,7 @@ export const summarizeVitals = async (vitalsHistory: VitalsRecord[]): Promise<{ 
     const context = `Summarize the following recent vitals trend for a clinical handover note. Focus on stability, significant changes, and any abnormal readings. \n\n${formattedHistory}`;
     
     try {
-        const response = await ai.models.generateContent({
+        const response = await ai!.models.generateContent({
             model: flashModel,
             contents: context,
             config: {
@@ -543,7 +650,7 @@ export const summarizeVitals = async (vitalsHistory: VitalsRecord[]): Promise<{ 
         });
         return JSON.parse(response.text);
     } catch (error) {
-        console.error("Error summarizing vitals:", error);
+        logError("Error summarizing vitals:", error);
         return { summary: "Failed to generate AI summary." };
     }
 };

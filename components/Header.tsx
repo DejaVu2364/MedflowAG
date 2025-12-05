@@ -15,6 +15,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleChat }) => {
 
     const navItems = [
         { name: 'Dashboard', page: 'dashboard', icon: <HomeIcon /> },
+        { name: 'Bed Manager', page: 'bedManager', icon: <ClipboardDocumentListIcon /> },
         { name: 'Reception', page: 'reception', icon: <ClipboardDocumentListIcon /> },
         { name: 'Triage', page: 'triage', icon: <BeakerIcon /> },
     ];

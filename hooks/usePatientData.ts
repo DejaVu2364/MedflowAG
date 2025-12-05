@@ -3,6 +3,7 @@ import { Patient, AuditEvent, User, PatientStatus, Vitals, VitalsRecord, SOAPNot
 import { seedPatients, calculateTriageFromVitals, logAuditEventToServer } from '../services/api';
 import { subscribeToPatients, savePatient, updatePatientInDb, logAuditToDb, getIsFirebaseInitialized } from '../services/patientService';
 import { classifyComplaint, suggestOrdersFromClinicalFile, compileDischargeSummary, generateOverviewSummary, summarizeClinicalFile, summarizeVitals as summarizeVitalsFromService, crossCheckRound, getFollowUpQuestions as getFollowUpQuestionsFromService, composeHistoryParagraph } from '../services/geminiService';
+import { logError, logDebug, logInfo } from '../utils/logger';
 
 export const usePatientData = (currentUser: User | null) => {
     const [patients, setPatients] = useState<Patient[]>([]);
@@ -15,7 +16,16 @@ export const usePatientData = (currentUser: User | null) => {
         const initialize = async () => {
             setIsLoading(true);
 
-            if (getIsFirebaseInitialized()) {
+            // Safer check for Firebase initialization
+            let firebaseReady = false;
+            try {
+                firebaseReady = getIsFirebaseInitialized();
+            } catch (e) {
+                logError("Error checking firebase status:", e);
+                firebaseReady = false;
+            }
+
+            if (firebaseReady) {
                 // Subscribe to real-time updates
                 const unsubscribe = subscribeToPatients((realtimePatients) => {
                     if (realtimePatients.length === 0) {
@@ -31,10 +41,12 @@ export const usePatientData = (currentUser: User | null) => {
                 return () => unsubscribe();
             } else {
                 // Local Mode Fallback
+                logInfo("Firebase not initialized. Loading seed data.");
                 try {
                     const initialPatients = await seedPatients();
                     setPatients(initialPatients);
                 } catch (e) {
+                    logError("Failed to load initial data", e);
                     setError('Failed to load initial data.');
                 } finally {
                     setIsLoading(false);
@@ -78,7 +90,9 @@ export const usePatientData = (currentUser: User | null) => {
         };
         setAuditLog(prev => [newEvent, ...prev]);
         logAuditEventToServer(newEvent);
-        logAuditToDb(newEvent);
+        if (getIsFirebaseInitialized()) {
+             logAuditToDb(newEvent);
+        }
     }, []);
 
     const addPatient = useCallback(async (patientData: Omit<Patient, 'id' | 'status' | 'registrationTime' | 'triage' | 'timeline' | 'orders' | 'vitalsHistory' | 'clinicalFile' | 'rounds' | 'dischargeSummary' | 'overview' | 'results' | 'vitals'>) => {
