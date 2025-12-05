@@ -4,6 +4,7 @@ import DashboardPage from './pages/DashboardPage';
 import ReceptionPage from './pages/ReceptionPage';
 import TriagePage from './pages/TriagePage';
 import PatientDetailPage from './pages/PatientDetailPage';
+import BedManagerPage from './pages/BedManagerPage';
 import Header from './components/Header';
 import ChatPanel from './components/ChatPanel';
 import LoginPage from './pages/LoginPage';
@@ -21,7 +22,7 @@ import { useChat } from './hooks/useChat';
 export const AppContext = React.createContext<AppContextType | null>(null);
 
 const AppContent: React.FC = () => {
-    const { currentUser, setUser } = useAuth(); // setUser exposed for manual login/logout if needed by UI, though AuthContext handles it
+    const { currentUser, setUser } = useAuth(); // Use setUser from AuthContext directly
     const { page, setPage, theme, toggleTheme, isChatOpen, toggleChat, error, setError, isLoading: uiLoading } = useUI();
 
     const patientData = usePatientContext();
@@ -187,12 +188,13 @@ const AppContent: React.FC = () => {
             case 'reception': return <ReceptionPage />;
             case 'triage': return <TriagePage />;
             case 'patientDetail': return <PatientDetailPage />;
+            case 'bedManager': return <BedManagerPage />;
             default: return <DashboardPage />;
         }
     };
 
     const appContextValue: AppContextType = {
-        page, setPage, currentUser, setUser: () => { }, // AuthContext handles this, but type requires it. We could bridge it if needed.
+        page, setPage, currentUser, setUser, // Pass setUser from AuthContext
         patients, auditLog, addPatient, updatePatientVitals, updatePatientStatus,
         addNoteToPatient, addSOAPNoteToPatient, addChecklistToPatient, updatePatientComplaint: (pid, c) => { },
         toggleChecklistItem, selectedPatientId, setSelectedPatientId, isLoading: dataLoading || uiLoading, error, chatHistory, sendChatMessage,

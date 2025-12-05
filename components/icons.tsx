@@ -70,7 +70,7 @@ export const SearchIcon: React.FC<IconProps> = ({className}) => (
 
 export const ChatBubbleLeftRightIcon: React.FC<IconProps> = ({className}) => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className || "w-6 h-6"}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193l-3.72 3.72a1.125 1.125 0 01-1.59 0l-3.72-3.72a1.125 1.125 0 01-.282-1.055v-4.286c0-.97.616-1.813 1.5-2.097m6.026 6.026c.283-.149.49- .45.49-.777v-4.286c0-.327-.207-.628-.49-.777M5.25 12a.75.75 0 00-.75.75v3.375c0 .414.336.75.75.75h3.375a.75.75 0 000-1.5H6v-2.625a.75.75 0 00-.75-.75z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193l-3.72 3.72a1.125 1.125 0 01-1.59 0l-3.72-3.72a1.125 1.125 0 01-.282-1.055v-4.286c0-.97.616-1.813 1.5-2.097m6.026 6.026c.283-.149.49-.45.49-.777v-4.286c0-.327-.207-.628-.49-.777M5.25 12a.75.75 0 00-.75.75v3.375c0 .414.336.75.75.75h3.375a.75.75 0 000-1.5H6v-2.625a.75.75 0 00-.75-.75z" />
     </svg>
 );
 

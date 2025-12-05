@@ -1,9 +1,13 @@
 import { collection, doc, onSnapshot, orderBy, query, setDoc, updateDoc, addDoc } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, getIsFirebaseInitialized as getIsFirebaseInitializedFromCore } from './firebase';
 import { Patient, AuditEvent } from '../types';
 
 export const subscribeToPatients = (callback: (patients: Patient[]) => void) => {
-    if (!db) return () => { };
+    // Check if initialized properly
+    if (!getIsFirebaseInitializedFromCore()) return () => { };
+
+    // Double check db object
+    if (!db || !db.type) return () => {};
 
     const q = query(collection(db, 'patients'), orderBy('registrationTime', 'desc'));
     return onSnapshot(q, (snapshot) => {
@@ -15,7 +19,7 @@ export const subscribeToPatients = (callback: (patients: Patient[]) => void) => 
 };
 
 export const savePatient = async (patient: Patient) => {
-    if (!db) return;
+    if (!getIsFirebaseInitializedFromCore()) return;
     try {
         await setDoc(doc(db, 'patients', patient.id), patient);
     } catch (e) {
@@ -24,7 +28,7 @@ export const savePatient = async (patient: Patient) => {
 };
 
 export const updatePatientInDb = async (patientId: string, updates: Partial<Patient>) => {
-    if (!db) return;
+    if (!getIsFirebaseInitializedFromCore()) return;
     try {
         const docRef = doc(db, 'patients', patientId);
         await updateDoc(docRef, updates);
@@ -34,7 +38,7 @@ export const updatePatientInDb = async (patientId: string, updates: Partial<Pati
 };
 
 export const logAuditToDb = async (event: AuditEvent) => {
-    if (!db) return;
+    if (!getIsFirebaseInitializedFromCore()) return;
     try {
         await addDoc(collection(db, 'audit_logs'), event);
     } catch (e) {
@@ -42,4 +46,4 @@ export const logAuditToDb = async (event: AuditEvent) => {
     }
 };
 
-export const getIsFirebaseInitialized = () => !!db;
+export const getIsFirebaseInitialized = () => getIsFirebaseInitializedFromCore();
